@@ -78,6 +78,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "https://ai-customer-support-assisstant-mv7dt1223.vercel.app/"
         
         # Add your Vercel frontend URL here later
         # "https://your-frontend.vercel.app"
