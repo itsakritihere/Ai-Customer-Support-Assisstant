@@ -1,19 +1,66 @@
-
-from pydantic import BaseModel
-import joblib
-import sys
+from pathlib import Path
 import os
 
+import joblib
 from dotenv import load_dotenv
 from groq import Groq
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 
 # ==========================================
-# FastAPI application
+# 1. Project paths
 # ==========================================
 
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+MODEL_PATH = BASE_DIR / "ml" / "models" / "logistic_regression.pkl"
+VECTORIZER_PATH = BASE_DIR / "ml" / "models" / "tfidf_vectorizer.pkl"
+CATEGORIES_PATH = BASE_DIR / "ml" / "categories.py"
+
+
+# ==========================================
+# 2. Load ML model and TF-IDF vectorizer
+# ==========================================
+
+model = joblib.load(MODEL_PATH)
+vectorizer = joblib.load(VECTORIZER_PATH)
+
+
+# ==========================================
+# 3. Load category mapping
+# ==========================================
+
+import sys
+
+sys.path.insert(0, str(BASE_DIR / "ml"))
+
+from categories import CATEGORY_NAMES
+
+
+# ==========================================
+# 4. Load environment variables
+# ==========================================
+
+load_dotenv(BASE_DIR / "backend" / ".env")
+
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+
+if not GROQ_API_KEY:
+    raise ValueError("GROQ_API_KEY not found")
+
+
+# ==========================================
+# 5. Create Groq client
+# ==========================================
+
+client = Groq(api_key=GROQ_API_KEY)
+
+
+# ==========================================
+# 6. FastAPI application
+# ==========================================
 
 app = FastAPI(
     title="AI Customer Support Assistant",
@@ -21,61 +68,28 @@ app = FastAPI(
     version="1.0.0"
 )
 
+
+# ==========================================
+# 7. CORS
+# ==========================================
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
-        "http://127.0.0.1:5173"
+        "http://127.0.0.1:5173",
+        
+        # Add your Vercel frontend URL here later
+        # "https://your-frontend.vercel.app"
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-# ==========================================
-# Import category mapping
-# ==========================================
-
-sys.path.append("../ml")
-
-from categories import CATEGORY_NAMES
 
 
 # ==========================================
-# Load ML model
-# ==========================================
-
-model = joblib.load(
-    "../ml/models/logistic_regression.pkl"
-)
-
-vectorizer = joblib.load(
-    "../ml/models/tfidf_vectorizer.pkl"
-)
-
-
-# ==========================================
-# Load environment variables
-# ==========================================
-
-load_dotenv()
-
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-
-if not GROQ_API_KEY:
-    raise ValueError("GROQ_API_KEY not found in backend/.env")
-
-
-# ==========================================
-# Create Groq client
-# ==========================================
-
-client = Groq(
-    api_key=GROQ_API_KEY
-)
-
-
-# ==========================================
-# Request structure
+# 8. Request structure
 # ==========================================
 
 class TicketRequest(BaseModel):
@@ -83,19 +97,18 @@ class TicketRequest(BaseModel):
 
 
 # ==========================================
-# Home endpoint
+# 9. Home endpoint
 # ==========================================
 
 @app.get("/")
 def home():
-
     return {
         "message": "AI Customer Support Assistant API is running"
     }
 
 
 # ==========================================
-# Prediction endpoint
+# 10. Prediction endpoint
 # ==========================================
 
 @app.post("/predict")
@@ -104,21 +117,19 @@ def predict_ticket(request: TicketRequest):
     ticket = request.ticket.strip()
 
     if not ticket:
-
         return {
             "error": "Ticket cannot be empty"
         }
 
-
     # ======================================
-    # 1. Convert ticket to TF-IDF
+    # Convert ticket to TF-IDF
     # ======================================
 
     ticket_tfidf = vectorizer.transform([ticket])
 
 
     # ======================================
-    # 2. ML prediction
+    # ML prediction
     # ======================================
 
     prediction = model.predict(ticket_tfidf)[0]
@@ -129,7 +140,7 @@ def predict_ticket(request: TicketRequest):
 
 
     # ======================================
-    # 3. Convert label to category
+    # Convert label to category
     # ======================================
 
     category = CATEGORY_NAMES.get(
@@ -139,7 +150,7 @@ def predict_ticket(request: TicketRequest):
 
 
     # ======================================
-    # 4. Generate AI response
+    # Generate AI response
     # ======================================
 
     prompt = f"""
@@ -169,12 +180,14 @@ Rules:
 """
 
 
-    response = client.chat.completions.create(
+    # ======================================
+    # Groq API
+    # ======================================
 
+    response = client.chat.completions.create(
         model="llama-3.3-70b-versatile",
 
         messages=[
-
             {
                 "role": "system",
                 "content": (
@@ -182,12 +195,10 @@ Rules:
                     "customer support assistant."
                 )
             },
-
             {
                 "role": "user",
                 "content": prompt
             }
-
         ],
 
         temperature=0.3
@@ -198,21 +209,16 @@ Rules:
 
 
     # ======================================
-    # 5. Return complete result
+    # Return result
     # ======================================
 
     return {
-
         "ticket": ticket,
-
         "predicted_label": int(prediction),
-
         "category": category,
-
         "confidence": round(
             float(confidence) * 100,
             2
         ),
-
         "ai_response": ai_response
     }
